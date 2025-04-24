@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "MY WebAuthn Authenticator Extension",
+  "version": "1.682",
+  "description": "",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "webRequest" // si intercepte des requêtes
+  ],
+  "host_permissions": ["<all_urls>", "http://localhost:8080/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icon.js", "register.js", "utils.js", "bootstrap.js", "config.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

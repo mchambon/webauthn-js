@@ -1,0 +1,399 @@
+use actix_web::{http::header, web, App, HttpResponse, HttpServer};
+use actix_cors::Cors;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sha2::{digest::generic_array::GenericArray, Digest, Sha256};
+use base64::{engine::general_purpose, Engine as _};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use rand::{Rng, RngCore};
+use p256::ecdsa::{SigningKey, Signature, signature::Signer}; // Pour ECDSA P-256
+
+#[macro_use]
+extern crate log;
+extern crate env_logger;
+
+struct AppState {
+    credentials: Mutex<HashMap<Vec<u8>, Credential>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Credential {
+    credential_id: Vec<u8>,
+    public_key: Vec<u8>,
+    private_key: Vec<u8>, // Ajouter la clé privée
+    rp_id: String,
+    user_id: Vec<u8>,
+    user_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Ctap2CreateRequest {
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(rename = "clientDataJSON")]
+    client_data_json: ClientDataJSON,
+    #[serde(rename = "attestationData")]
+    attestation_data: AttestationData,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientDataJSON {
+    #[serde(rename = "type")]
+    type_: String,
+    challenge: String,
+    origin: String,
+    #[serde(rename = "crossOrigin")]
+    cross_origin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct AttestationData {
+    rp: Rp,
+    user: User,
+    #[serde(rename = "pubKeyCredParams")]
+    pub_key_cred_params: Vec<PubKeyCredParam>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Rp {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct User {
+    id: Vec<u8>,
+    name: String,
+    #[serde(rename = "displayName")]
+    display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PubKeyCredParam {
+    #[serde(rename = "type")]
+    type_: String,
+    alg: i32,
+}
+
+#[derive(Serialize)]
+struct Ctap2CreateResponse {
+    #[serde(rename = "credentialId")]
+    credential_id: String,
+    #[serde(rename = "attestationObject")]
+    attestation_object: String,
+    #[serde(rename = "clientDataJSON")]
+    client_data_json: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Ctap2GetRequest {
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(rename = "clientDataJSON")]
+    client_data_json: ClientDataJSON,
+    #[serde(rename = "authenticatorData")]
+    authenticator_data: Option<AuthenticatorData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthenticatorData {
+    #[serde(rename = "rpId")]
+    rp_id: Option<String>,
+    #[serde(rename = "allowCredentials")]
+    allow_credentials: Option<Vec<CredentialDescriptor>>,
+    #[serde(rename = "userVerification")]
+    user_verification: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct CredentialDescriptor {
+    id: String,
+    #[serde(rename = "type")]
+    type_: String,
+}
+
+#[derive(Serialize)]
+struct Ctap2GetResponse {
+    #[serde(rename = "credentialId")]
+    credential_id: String,
+    #[serde(rename = "authenticatorData")]
+    authenticator_data: String,
+    signature: String,
+    #[serde(rename = "clientDataJSON")]
+    client_data_json: String,
+    #[serde(rename = "userHandle")]
+    user_handle: Option<String>,
+}
+
+async fn handle_make_credential(
+    payload: web::Bytes,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    let payload_str = match String::from_utf8(payload.to_vec()) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Payload non-UTF8: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({"error": "Invalid payload encoding"}));
+        }
+    };
+    info!("Payload brut reçu pour makeCredential: {}", payload_str);
+
+    let req: Ctap2CreateRequest = match serde_json::from_str(&payload_str) {
+        Ok(req) => req,
+        Err(e) => {
+            error!("Erreur de désérialisation: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({"error": format!("Failed to deserialize: {}", e)}));
+        }
+    };
+    info!("Traitement de makeCredential: {:?}", req);
+
+    let challenge = match general_purpose::STANDARD.decode(&req.client_data_json.challenge) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Erreur de décodage du challenge: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({"error": "Invalid challenge"}));
+        }
+    };
+    let rp_id = &req.attestation_data.rp.name;
+
+    let mut credential_id = vec![0u8; 32];
+    rand::thread_rng().fill_bytes(&mut credential_id);
+
+    // Générer une paire de clés ECDSA P-256
+    let signing_key = SigningKey::random(&mut rand::thread_rng());
+    let private_key = signing_key.to_bytes().to_vec();
+    let verifying_key = signing_key.verifying_key();
+    let public_key_x = verifying_key.to_encoded_point(false).x().unwrap().to_vec();
+    let public_key_y = verifying_key.to_encoded_point(false).y().unwrap().to_vec();
+
+    // Générer une clé publique COSE (ECDSA P-256)
+    let cose_public_key = {
+        let mut key = Vec::new();
+        key.extend_from_slice(&[0xa5]); // Map avec 5 entrées
+        key.extend_from_slice(&[0x01, 0x02]); // kty: EC2 (2)
+        key.extend_from_slice(&[0x03, 0x26]); // alg: ES256 (-7)
+        key.extend_from_slice(&[0x20, 0x01]); // crv: P-256 (1)
+        key.extend_from_slice(&[0x21]); // x coordinate
+        key.push(0x58); key.push(0x20); // longueur 32 octets
+        key.extend_from_slice(&public_key_x);
+        key.extend_from_slice(&[0x22]); // y coordinate
+        key.push(0x58); key.push(0x20); // longueur 32 octets
+        key.extend_from_slice(&public_key_y);
+        key
+    };
+
+    let rp_id_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(rp_id.as_bytes());
+        hasher.finalize().to_vec()
+    };
+    let flags = 0x41; // UP + AT
+    let sign_count = [0u8; 4];
+    let aaguid = [0u8; 16];
+    let cred_id_len = (credential_id.len() as u16).to_be_bytes();
+
+    let mut auth_data = Vec::new();
+    auth_data.extend_from_slice(&rp_id_hash); // 32 octets
+    auth_data.push(flags); // 1 octet
+    auth_data.extend_from_slice(&sign_count); // 4 octets
+    auth_data.extend_from_slice(&aaguid); // 16 octets
+    auth_data.extend_from_slice(&cred_id_len); // 2 octets
+    auth_data.extend_from_slice(&credential_id); // 32 octets
+    auth_data.extend_from_slice(&cose_public_key); // Clé publique COSE
+
+    let client_data = json!({
+        "type": req.client_data_json.type_,
+        "challenge": req.client_data_json.challenge,
+        "origin": req.client_data_json.origin,
+        "crossOrigin": req.client_data_json.cross_origin,
+        "virtual_authenticator": "GramThanos & University of Piraeus"
+    });
+    let client_data_json = match serde_json::to_string(&client_data) {
+        Ok(json) => json,
+        Err(e) => {
+            error!("Erreur de sérialisation de clientDataJSON: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({"error": "Failed to serialize clientDataJSON"}));
+        }
+    };
+    let client_data_json_bytes = client_data_json.as_bytes();
+
+    let attestation_object = match serde_cbor::to_vec(&serde_json::json!({
+        "fmt": "none",
+        "attStmt": {},
+        "authData": auth_data,
+    })) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Erreur de génération de l'attestationObject: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({"error": "Failed to encode attestation object"}));
+        }
+    };
+
+    let credential = Credential {
+        credential_id: credential_id.clone(),
+        public_key: cose_public_key,
+        private_key, // Stocker la clé privée
+        rp_id: rp_id.clone(),
+        user_id: req.attestation_data.user.id.clone(),
+        user_name: req.attestation_data.user.name.clone(),
+    };
+    match state.credentials.lock() {
+        Ok(mut credentials) => {
+            credentials.insert(credential_id.clone(), credential);
+        }
+        Err(e) => {
+            error!("Erreur de verrouillage du Mutex: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({"error": "Mutex lock failed"}));
+        }
+    }
+
+    let response = Ctap2CreateResponse {
+        credential_id: general_purpose::STANDARD.encode(&credential_id),
+        attestation_object: general_purpose::STANDARD.encode(&attestation_object),
+        client_data_json: general_purpose::STANDARD.encode(client_data_json_bytes),
+    };
+
+    HttpResponse::Ok().json(response)
+}
+
+async fn handle_get_assertion(
+    req: web::Json<Ctap2GetRequest>,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    info!("Traitement de getAssertion: {:?}", req);
+
+    let challenge = match general_purpose::STANDARD.decode(&req.client_data_json.challenge) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Erreur de décodage du challenge: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({"error": "Invalid challenge"}));
+        }
+    };
+    let rp_id = req.authenticator_data.as_ref().and_then(|d| d.rp_id.clone()).unwrap_or("unknown".to_string());
+    let allow_credentials = req.authenticator_data.as_ref().and_then(|d| d.allow_credentials.as_ref().map(|v| v.to_vec())).unwrap_or_default();
+
+    let mut credentials = match state.credentials.lock() {
+        Ok(lock) => lock,
+        Err(e) => {
+            error!("Erreur de verrouillage du Mutex: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({"error": "Mutex lock failed"}));
+        }
+    };
+    let credential = if allow_credentials.is_empty() {
+        credentials.values().find(|c| c.rp_id == rp_id).cloned()
+    } else {
+        match general_purpose::STANDARD.decode(&allow_credentials[0].id) {
+            Ok(cred_id) => credentials.get(&cred_id).cloned(),
+            Err(e) => {
+                error!("Erreur de décodage de credential_id: {:?}", e);
+                return HttpResponse::BadRequest().json(json!({"error": "Invalid credential_id"}));
+            }
+        }
+    };
+
+    let credential = match credential {
+        Some(c) => c,
+        None => {
+            warn!("Aucune credential trouvée, génération simulée");
+            let mut credential_id = vec![0u8; 32];
+            rand::thread_rng().fill_bytes(&mut credential_id);
+            let signing_key = SigningKey::random(&mut rand::thread_rng());
+            let private_key = signing_key.to_bytes().to_vec();
+            let verifying_key = signing_key.verifying_key();
+            let public_key_x = verifying_key.to_encoded_point(false).x().unwrap().to_vec();
+            let public_key_y = verifying_key.to_encoded_point(false).y().unwrap().to_vec();
+            let mut public_key = vec![0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
+            public_key.extend_from_slice(&public_key_x);
+            public_key.extend_from_slice(&[0x22, 0x58, 0x20]);
+            public_key.extend_from_slice(&public_key_y);
+            Credential {
+                credential_id,
+                public_key,
+                private_key,
+                rp_id: rp_id.clone(),
+                user_id: vec![],
+                user_name: "simulated_user".to_string(),
+            }
+        }
+    };
+
+    let rp_id_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(rp_id.as_bytes());
+        hasher.finalize().to_vec()
+    };
+    let flags = 0x01; // UP
+    let sign_count = [0u8; 4];
+    let mut auth_data = vec![];
+    auth_data.extend_from_slice(&rp_id_hash);
+    auth_data.push(flags);
+    auth_data.extend_from_slice(&sign_count);
+
+    let client_data = json!({
+        "type": req.client_data_json.type_,
+        "challenge": req.client_data_json.challenge,
+        "origin": req.client_data_json.origin,
+        "crossOrigin": req.client_data_json.cross_origin,
+        "virtual_authenticator": "GramThanos & University of Piraeus"
+    });
+    let client_data_json = match serde_json::to_string(&client_data) {
+        Ok(json) => json,
+        Err(e) => {
+            error!("Erreur de sérialisation de clientDataJSON: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({"error": "Failed to serialize clientDataJSON"}));
+        }
+    };
+    let client_data_json_bytes = client_data_json.as_bytes();
+    let client_data_hash = Sha256::digest(client_data_json_bytes).to_vec();
+
+    // Générer une signature valide avec la clé privée
+    let mut data_to_sign = Vec::new();
+    data_to_sign.extend_from_slice(&auth_data);
+    data_to_sign.extend_from_slice(&client_data_hash);
+    let private_key_array: [u8; 32] = credential.private_key.clone().try_into().expect("Invalid private key length");
+    let signing_key = SigningKey::from_bytes(GenericArray::from_slice(&private_key_array)).unwrap();
+    let signature: Signature = signing_key.sign(&data_to_sign);
+    let signature_bytes = signature.to_der().to_bytes();
+
+    let response = Ctap2GetResponse {
+        credential_id: general_purpose::STANDARD.encode(&credential.credential_id),
+        authenticator_data: general_purpose::STANDARD.encode(&auth_data),
+        signature: general_purpose::STANDARD.encode(&signature_bytes),
+        client_data_json: general_purpose::STANDARD.encode(client_data_json_bytes),
+        user_handle: if credential.user_id.is_empty() {
+            None
+        } else {
+            Some(general_purpose::STANDARD.encode(&credential.user_id))
+        },
+    };
+
+    HttpResponse::Ok().json(response)
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    env_logger::init();
+
+    let state = web::Data::new(AppState {
+        credentials: Mutex::new(HashMap::new()),
+    });
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(state.clone())
+            .wrap(
+                Cors::default()
+                    .allowed_origin("https://webauthn.io")
+                    .allowed_origin("https://webauthn.me")
+                    .allowed_origin("https://gramthanos.github.io/")
+                    .allowed_methods(vec!["POST"])
+                    .allowed_headers(vec![header::CONTENT_TYPE])
+                    .max_age(3600),
+            )
+            .route("/ctap2/makeCredential", web::post().to(handle_make_credential))
+            .route("/ctap2/getAssertion", web::post().to(handle_get_assertion))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
+}

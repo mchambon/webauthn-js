@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestionnaire KeePass Simulation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Simulateur de Passkeys</h1>
+  <button id="toggleSimulation">Activer/Désactiver Simulation</button>
+  <script>
+    const toggleButton = document.getElementById('toggleSimulation');
+    let simulationEnabled = true;
+
+    toggleButton.addEventListener('click', () => {
+      simulationEnabled = !simulationEnabled;
+      toggleButton.textContent = simulationEnabled
+        ? "Désactiver Simulation"
+        : "Activer Simulation";
+      chrome.runtime.sendMessage({ type: "TOGGLE_SIMULATION", enabled: simulationEnabled });
+    });
+  </script>
+</body>
+</html>

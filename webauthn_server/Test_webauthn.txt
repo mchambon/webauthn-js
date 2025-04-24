@@ -1,0 +1,85 @@
+# Credential Create
+
+## Generate Options
+
+navigator.credentials.create({
+    "publicKey": {
+        "rp": {
+            "name": "FIDO 2 Unipi",
+            "id": "gramthanos.github.io"
+        },
+        "user": {
+            "name": "john.smith@email.com",
+            "displayName": "J. Smith",
+            "id": fb64("am9obi5zbWl0aEBlbWFpbC5jb20") // Uint8Array
+        },
+        "challenge": fb64("Dw4NDAsKCQgHBgUEAwIBAA"), // Uint8Array
+        "pubKeyCredParams": [
+            {"type": "public-key", "alg": -7}, // ECDSA w/ SHA-256
+            {"type": "public-key", "alg": -37}, // RSASSA-PSS w/ SHA-256
+            {"type": "public-key", "alg": -257} // RSASSA-PKCS1-v1_5 using SHA-256
+        ],
+        "timeout": 120000
+    }
+}).then((credentials) => {
+    console.log(credentials);
+});
+
+function fb64(x) { // Base64 to Uint8Array
+    return Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+};
+
+## Create Credentials
+
+{
+    "type": "public-key",
+    "id": "GramThanos8ev9rLOJoEU4VsVM7jCKRWu1fMRmfuQ_M_YpCOF9LRYoF994qIKPCmx0E-LvO6gYCLV3dcqyp3sj2DToIgdc3eJSH5_fxHLAV4fkjSgEqvk2n1EmNBH4M1CnEbjsh944KY5BLGfGCmOPWvcjIngofWry2Xrmrgd1AgWk4-2Akya3oBBzuLpaaigZ0k01noORbdIuutuxPsCuxfQra7wM_E--429RoIw2bxV0GJZCTc0xJGiRS__BzGnVnQrDO_B20dgSZZ9a40lAFVlsCK0r8HuwJtQcS8p9-NPkInIf78wsZY23eVlkqd9S4dToGH2aBQm9aFBeM6YlaD8t_5cpZgBA5bZXCkkasCjg",
+    "rawId": GramThanos8ev9rLOJoEU4VsVM7jCKRWu1fMRmfuQ_M_YpCOF9LRYoF994qIKPCmx0E-LvO6gYCLV3dcqyp3sj2DToIgdc3eJSH5_fxHLAV4fkjSgEqvk2n1EmNBH4M1CnEbjsh944KY5BLGfGCmOPWvcjIngofWry2Xrmrgd1AgWk4-2Akya3oBBzuLpaaigZ0k01noORbdIuutuxPsCuxfQra7wM_E--429RoIw2bxV0GJZCTc0xJGiRS__BzGnVnQrDO_B20dgSZZ9a40lAFVlsCK0r8HuwJtQcS8p9-NPkInIf78wsZY23eVlkqd9S4dToGH2aBQm9aFBeM6YlaD8t_5cpZgBA5bZXCkkasCjg, // ArrayBuffer(274)
+    "response": {
+        "clientDataJSON": eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiRHc0TkRBc0tDUWdIQmdVRUF3SUJBQSIsIm9yaWdpbiI6Imh0dHBzOi8vZ3JhbXRoYW5vcy5naXRodWIuaW8iLCJjcm9zc09yaWdpbiI6ZmFsc2UsInZpcnR1YWxfYXV0aGVudGljYXRvciI6IkdyYW1UaGFub3MgJiBVbml2ZXJzaXR5IG9mIFBpcmFldXMifQ, // ArrayBuffer(184)
+        "attestationObject": o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVkBlqLvhUwoa0ewDvgtCl7bGsTdUCF-Azqv2gpmHinlF55WRQAAAAF2aXJ0dWFsLWF1dGhuLXYxARIatqZOFqeizx6_2ss4mgRThWxUzuMIpFa7V8xGZ-5D8z9ikI4X0tFigX33iogo8KbHQT4u87qBgItXd1yrKneyPYNOgiB1zd4lIfn9_EcsBXh-SNKASq-TafUSY0EfgzUKcRuOyH3jgpjkEsZ8YKY49a9yMieCh9avLZeuauB3UCBaTj7YCTJregEHO4ulpqKBnSTTWeg5Ft0i6627E-wK7F9CtrvAz8T77jb1GgjDZvFXQYlkJNzTEkaJFL_8HMadWdCsM78HbR2BJln1rjSUAVWWwIrSvwe7Am1BxLyn340-Qich_vzCxljbd5WWSp31Lh1OgYfZoFCb1oUF4zpiVoPy3_lylmAEDltlcKSRqwKOpQECAyYgASFYIGn8h3Y5270nojO2It9qOBTXDnBieRBo68e0juduTVVkIlggIDciIUP4ScWWgx93ACitA8xypSBp381uuN614J-e8J0 // ArrayBuffer(437)
+    }
+}
+
+
+# Credential Get
+
+## Generate options
+
+navigator.credentials.get({
+    "publicKey": {
+        "rpId": "gramthanos.github.io",
+        "challenge": fb64("Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA"), // Uint8Array(32)
+        "allowCredentials": [
+            {
+                "type": "public-key",
+                "id": GramThanos8ev9rLOJoEU4VsVM7jCKRWu1fMRmfuQ_M_YpCOF9LRYoF994qIKPCmx0E-LvO6gYCLV3dcqyp3sj2DToIgdc3eJSH5_fxHLAV4fkjSgEqvk2n1EmNBH4M1CnEbjsh944KY5BLGfGCmOPWvcjIngofWry2Xrmrgd1AgWk4-2Akya3oBBzuLpaaigZ0k01noORbdIuutuxPsCuxfQra7wM_E--429RoIw2bxV0GJZCTc0xJGiRS__BzGnVnQrDO_B20dgSZZ9a40lAFVlsCK0r8HuwJtQcS8p9-NPkInIf78wsZY23eVlkqd9S4dToGH2aBQm9aFBeM6YlaD8t_5cpZgBA5bZXCkkasCjg // Uint8Array(274)
+            },
+            {
+                "type": "public-key",
+                "id": GramThanos_Tlut8qXRcTKsUo-T4PG5PwCgujtbnuvhZePW04oAQgGPn7a5CI4VF6KJ-Vy4gHkZYciphWPMZeox_gkPzxIcy2ftgc2-KGsstMM_sO2eYgE108VSQVzFGqmR99BJWX3yeIjzOoOTRAjQWb_dLmBQh9yEDHG5I173hS4_LRiJ-iAYk7eviED2t0uSaYuxXZ1WhSvhxO2tAaK8Qite29ZHLQfr443UBc7wpFsYt9a3JRhip67c6CHxm67pU7dc5WD3tjpLHJ3GM_5pZnckRLDVu0xTmrASx5GcUVIqBLk_gKLcgLqF3Pxtxgwf18_ED3P_hj8XT8KAgF2uPXPoN6P4kCtSuW1qjD4Wkzg // Uint8Array(274)
+            }
+        ],
+        "timeout": 120000
+    }
+}).then((credentials) => {
+    console.log(credentials);
+});
+
+function fb64(x) { // Base64 to Uint8Array
+    return Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+};
+
+## Get Credentials
+
+{
+    "type": "public-key",
+    "id": "GramThanos_Tlut8qXRcTKsUo-T4PG5PwCgujtbnuvhZePW04oAQgGPn7a5CI4VF6KJ-Vy4gHkZYciphWPMZeox_gkPzxIcy2ftgc2-KGsstMM_sO2eYgE108VSQVzFGqmR99BJWX3yeIjzOoOTRAjQWb_dLmBQh9yEDHG5I173hS4_LRiJ-iAYk7eviED2t0uSaYuxXZ1WhSvhxO2tAaK8Qite29ZHLQfr443UBc7wpFsYt9a3JRhip67c6CHxm67pU7dc5WD3tjpLHJ3GM_5pZnckRLDVu0xTmrASx5GcUVIqBLk_gKLcgLqF3Pxtxgwf18_ED3P_hj8XT8KAgF2uPXPoN6P4kCtSuW1qjD4Wkzg",
+    "rawId": GramThanos_Tlut8qXRcTKsUo-T4PG5PwCgujtbnuvhZePW04oAQgGPn7a5CI4VF6KJ-Vy4gHkZYciphWPMZeox_gkPzxIcy2ftgc2-KGsstMM_sO2eYgE108VSQVzFGqmR99BJWX3yeIjzOoOTRAjQWb_dLmBQh9yEDHG5I173hS4_LRiJ-iAYk7eviED2t0uSaYuxXZ1WhSvhxO2tAaK8Qite29ZHLQfr443UBc7wpFsYt9a3JRhip67c6CHxm67pU7dc5WD3tjpLHJ3GM_5pZnckRLDVu0xTmrASx5GcUVIqBLk_gKLcgLqF3Pxtxgwf18_ED3P_hj8XT8KAgF2uPXPoN6P4kCtSuW1qjD4Wkzg, // ArrayBuffer(274)
+    "response": {
+        "clientDataJSON": eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiSHg0ZEhCc2FHUmdYRmhVVUV4SVJFQThPRFF3TENna0lCd1lGQkFNQ0FRQSIsIm9yaWdpbiI6Imh0dHBzOi8vZ3JhbXRoYW5vcy5naXRodWIuaW8iLCJjcm9zc09yaWdpbiI6ZmFsc2UsInZpcnR1YWxfYXV0aGVudGljYXRvciI6IkdyYW1UaGFub3MgJiBVbml2ZXJzaXR5IG9mIFBpcmFldXMifQ, // ArrayBuffer(202)
+        "authenticatorData": ou-FTChrR7AO-C0KXtsaxN1QIX4DOq_aCmYeKeUXnlYFAALwMg, // ArrayBuffer(37)
+        "signature": MEQCIBva5HGBXgWwQB-LPgPv4hkJcDoViJhGPFHDxwOAKwmaAiBHfEGxYyq9zA03BPg5vdrXnlmm-z-KkRfEb7q6lXqFHg, // ArrayBuffer(70)
+        "userHandle": am9obi5zbWl0aEBlbWFpbC5jb20 // ArrayBuffer(20)
+    }
+}

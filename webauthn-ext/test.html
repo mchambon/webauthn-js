@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Authenticator WebAuthn</title>
+</head>
+<body>
+    <h1>Test de l'Authenticator WebAuthn</h1>
+    <button id="create-credentials">Créer des Credentials</button>
+    <p>Ouvre la console (F12) pour voir le résultat.</p>
+
+    <script type="module">
+        // Fonction utilitaire pour convertir base64 en Uint8Array
+        function fb64(x) {
+            return Uint8Array.from(atob(x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        }
+
+        // Fonction utilitaire pour convertir ArrayBuffer en base64
+        function arrayBufferToBase64(buffer) {
+            return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+        }
+
+        // Fonction utilitaire pour convertir base64 en ArrayBuffer
+        function base64ToArrayBuffer(base64) {
+            if (!base64 || typeof base64 !== 'string') {
+                throw new Error(`Valeur base64 invalide : ${base64}`);
+            }
+            try {
+                const binary = atob(base64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                return bytes.buffer;
+            } catch (e) {
+                console.error("Erreur de décodage base64 :", e, "Chaine reçue :", base64);
+                throw e;
+            }
+        }
+
+        // Hook minimal pour WebAuthn
+navigator.credentials.create = async (options) => {
+    try {
+        if (!options.publicKey) {
+            throw new Error("Options publicKey manquantes");
+        }
+
+        // Transforme les options WebAuthn en requête CTAP2
+        const requestData = {
+            type: "public-key",
+            sub_command: "makeCredential",
+            parameters: {
+                rpId: options.publicKey.rp.id,
+                challenge: Array.from(new Uint8Array(options.publicKey.challenge)), // tableau d'octets
+                userId: Array.from(new Uint8Array(options.publicKey.user.id)), // tableau d'octets
+                userName: options.publicKey.user.name,
+            },
+        };
+
+        console.log("Données envoyées au serveur :", JSON.stringify(requestData, null, 2));
+
+        // Envoie la requête à /ctap2 (PAS /ctap2/makeCredential)
+        const response = await fetch("http://localhost:8080/ctap2", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestData),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Erreur du serveur Rust : ${response.status} - ${errorText}`);
+        }
+
+        const serverResponse = await response.json();
+        console.log("Réponse brute du serveur :", serverResponse);
+
+        if (!serverResponse.credential_id || !serverResponse.attestation_object || !serverResponse.client_data_json) {
+            throw new Error("Réponse du serveur incomplète : " + JSON.stringify(serverResponse));
+        }
+
+        return {
+            type: "public-key",
+            id: base64ToArrayBuffer(serverResponse.credential_id),
+            rawId: base64ToArrayBuffer(serverResponse.credential_id),
+            response: {
+                clientDataJSON: base64ToArrayBuffer(serverResponse.client_data_json),
+                attestationObject: base64ToArrayBuffer(serverResponse.attestation_object),
+            },
+        };
+    } catch (error) {
+        console.error("Erreur dans le hook WebAuthn :", error);
+        throw error;
+    }
+};
+
+        // Fonction appelée par le bouton
+        async function testCredentials() {
+            const mockOptions = {
+                publicKey: {
+                    rp: {
+                        name: "FIDO 2 Unipi",
+                        id: "gramthanos.github.io",
+                    },
+                    user: {
+                        name: "john.smith@email.com",
+                        displayName: "J. Smith",
+                        id: fb64("am9obi5zbWl0aEBlbWFpbC5jb20"), // "john.smith@email.com" en base64
+                    },
+                    challenge: fb64("Dw4NDAsKCQgHBgUEAwIBAA"), // Challenge mocké
+                    pubKeyCredParams: [
+                        { type: "public-key", alg: -7 },
+                        { type: "public-key", alg: -37 },
+                        { type: "public-key", alg: -257 },
+                    ],
+                    timeout: 120000,
+                },
+            };
+
+            try {
+                const credentials = await navigator.credentials.create(mockOptions);
+                console.log("Credentials créées avec succès :", credentials);
+            } catch (error) {
+                console.error("Erreur lors de la création des credentials :", error);
+            }
+        }
+
+        document.getElementById("create-credentials").addEventListener("click", testCredentials);
+    </script>
+</body>
+</html>
